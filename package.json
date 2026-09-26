@@ -1,0 +1,20 @@
+{
+  "name": "ai-crop-guardian",
+  "version": "1.0.0",
+  "description": "AI Crop Guardian — Precision Farming Intelligence Platform",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\" \"npm run dev:ai\"",
+    "dev:client": "npm run dev --prefix client",
+    "dev:server": "npm run dev --prefix server",
+    "dev:ai": "node ai-service/start.js",
+    "install:all": "npm install && npm install --prefix client && npm install --prefix server",
+    "build": "npm run build --prefix client",
+    "docker:up": "docker compose -f docker/docker-compose.yml up --build",
+    "docker:down": "docker compose -f docker/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

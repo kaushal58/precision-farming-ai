@@ -1,0 +1,40 @@
+# Node.js
+node_modules/
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Uploads
+uploads/
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv311/
+venv/
+env/
+
+# Vite
+.vite/
+
+# Test coverage
+coverage/
+
+# Certificates / private keys
+*.pem
+
+# AI model files
+ai-service/models/*.h5
+ai-service/models/*.pt
+ai-service/models/*.onnx

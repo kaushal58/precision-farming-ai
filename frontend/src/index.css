@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply font-sans antialiased;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply backdrop-blur-xl bg-white/70 dark:bg-slate-900/70 border border-white/20 dark:border-slate-700/50 shadow-xl;
+  }
+  .glass-card {
+    @apply glass rounded-2xl p-6 transition-all duration-300 hover:shadow-2xl hover:-translate-y-0.5;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold
+      bg-gradient-to-r from-brand-600 to-brand-500 text-white
+      hover:from-brand-500 hover:to-brand-400 shadow-lg shadow-brand-500/25
+      transition-all duration-200 active:scale-95;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold
+      glass hover:bg-white/90 dark:hover:bg-slate-800/90 transition-all duration-200;
+  }
+  .input-field {
+    @apply w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700
+      bg-white/80 dark:bg-slate-800/80 focus:ring-2 focus:ring-brand-500 focus:border-transparent
+      outline-none transition-all;
+  }
+  .gradient-text {
+    @apply bg-gradient-to-r from-brand-400 via-emerald-400 to-teal-300 bg-clip-text text-transparent;
+  }
+  .page-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8;
+  }
+}
