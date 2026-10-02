@@ -186,7 +186,6 @@ def _validate_leaf(img: np.ndarray) -> tuple[bool, float]:
     Rejects completely non-leaf objects (desks, cars, blank screens, animals).
     """
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    # Green tones, yellowish foliage, and brown leaf necrosis
     green_mask = cv2.inRange(hsv, (25, 25, 25), (85, 255, 255))
     yellow_mask = cv2.inRange(hsv, (14, 30, 30), (35, 255, 255))
     foliage_mask = cv2.bitwise_or(green_mask, yellow_mask)
@@ -194,7 +193,6 @@ def _validate_leaf(img: np.ndarray) -> tuple[bool, float]:
     total_pixels = img.shape[0] * img.shape[1]
     foliage_ratio = np.sum(foliage_mask > 0) / total_pixels
 
-    # Also check texture / color variance
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
 
@@ -216,15 +214,16 @@ def _generate_lesion_heatmap(img: np.ndarray, lesion_mask: np.ndarray) -> str:
 
 
 # ── Crop & Disease Diagnosis ──────────────────────────────────────────────────
-def _diagnose_crop_disease(img: np.ndarray, crop_key: str) -> tuple[str, float, str, np.ndarray]:
+def _diagnose_crop_disease(img: np.ndarray, crop_key: str) -> tuple[str, float, str, np.ndarray, str]:
     """
-    Deterministic lesion morphology analysis calibrated for the specified crop.
-    Returns: (disease_name, confidence, symptoms_observed, lesion_mask)
+    Deterministic lesion morphology analysis calibrated across crops.
+    Returns: (disease_name, confidence, symptoms_observed, lesion_mask, detected_crop)
     """
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     h, w = img.shape[:2]
     total_pixels = h * w
+    aspect_ratio = max(h, w) / max(min(h, w), 1)
 
     # Color segments
     green_mask   = cv2.inRange(hsv, (28, 35, 35), (85, 255, 255))
@@ -251,57 +250,77 @@ def _diagnose_crop_disease(img: np.ndarray, crop_key: str) -> tuple[str, float, 
     spot_areas = [cv2.contourArea(c) for c in contours if 30 < cv2.contourArea(c) < total_pixels * 0.25]
     spot_count = len(spot_areas)
 
-    # Combine brown, yellow, and dark into primary lesion mask
     lesion_mask = cv2.bitwise_or(brown_mask, cv2.bitwise_or(yellow_mask, dark_mask))
 
+    # ── Crop Selection Resolution (Auto-Detect logic) ─────────────────────────
+    target_crop = crop_key
+    if target_crop not in ["tomato", "potato", "corn", "wheat"]:
+        # Auto-detect crop based on visual markers
+        if aspect_ratio >= 1.8 or w_ratio > 0.05 or o_ratio > 0.03:
+            # Slender monocot: Corn or Wheat
+            if w_ratio > 0.06 or (y_ratio > 0.09 and o_ratio < 0.02):
+                target_crop = "wheat"
+            elif o_ratio > 0.02 or edge_density > 0.04:
+                target_crop = "corn"
+            else:
+                target_crop = "wheat"
+        else:
+            # Broad-leaf dicot: Potato or Tomato
+            if d_ratio > 0.06 and b_ratio > 0.08:
+                target_crop = "potato"
+            else:
+                target_crop = "tomato"
+
     # --- Tomato Branch ---
-    if crop_key == "tomato":
-        if b_ratio < 0.04 and y_ratio < 0.05 and d_ratio < 0.04 and g_ratio > 0.45:
-            return "Healthy Leaf", 94.5, "Leaf has vibrant green hue without necrotic spots.", np.zeros((h, w), dtype=np.uint8)
+    if target_crop == "tomato":
+        if b_ratio < 0.04 and y_ratio < 0.05 and d_ratio < 0.04 and g_ratio > 0.38:
+            return "Healthy Leaf", 94.5, "Leaf has vibrant green hue without necrotic spots.", np.zeros((h, w), dtype=np.uint8), "tomato"
         if b_ratio > 0.08 and spot_count >= 3 and edge_density > 0.03:
-            return "Tomato Early Blight", 92.0, "Dark concentric target-like rings with chlorotic margin.", lesion_mask
-        if d_ratio > 0.07 or (b_ratio > 0.12 and y_ratio > 0.08):
-            return "Tomato Late Blight", 91.5, "Large irregular water-soaked dark lesions.", lesion_mask
-        if y_ratio > 0.10 and b_ratio < 0.08:
-            return "Tomato Leaf Mold", 88.0, "Yellowish chlorotic diffuse patches across upper leaflet.", yellow_mask
-        if spot_count > 6 and (d_ratio > 0.03 or b_ratio > 0.03):
-            return "Tomato Bacterial Spot", 89.0, "Multiple small dark greasy spots with yellow halo.", lesion_mask
-        return "Tomato Early Blight", 85.0, "Brown leaf lesions observed.", lesion_mask
+            return "Tomato Early Blight", 92.0, "Dark concentric target-like rings with chlorotic margin.", lesion_mask, "tomato"
+        if d_ratio > 0.06 or (b_ratio > 0.10 and y_ratio > 0.08):
+            return "Tomato Late Blight", 91.5, "Large irregular water-soaked dark lesions.", lesion_mask, "tomato"
+        if y_ratio > 0.08 and b_ratio < 0.06:
+            return "Tomato Leaf Mold", 88.0, "Yellowish chlorotic diffuse patches across upper leaflet.", yellow_mask, "tomato"
+        if spot_count > 5 and (d_ratio > 0.02 or b_ratio > 0.02):
+            return "Tomato Bacterial Spot", 89.0, "Multiple small dark greasy spots with yellow halo.", lesion_mask, "tomato"
+        if b_ratio > 0.05:
+            return "Tomato Early Blight", 85.0, "Brown leaf lesions observed.", lesion_mask, "tomato"
+        return "Healthy Leaf", 88.0, "Predominantly healthy leaf with minor cosmetic variation.", np.zeros((h, w), dtype=np.uint8), "tomato"
 
     # --- Potato Branch ---
-    elif crop_key == "potato":
-        if b_ratio < 0.04 and y_ratio < 0.05 and d_ratio < 0.03 and g_ratio > 0.45:
-            return "Healthy Leaf", 93.5, "Healthy foliage without blight symptoms.", np.zeros((h, w), dtype=np.uint8)
-        if d_ratio > 0.06 or (b_ratio > 0.12 and edge_density > 0.04):
-            return "Potato Late Blight", 93.0, "Dark brown to black decaying lesions with water-soaked edges.", lesion_mask
+    elif target_crop == "potato":
+        if b_ratio < 0.04 and y_ratio < 0.05 and d_ratio < 0.03 and g_ratio > 0.38:
+            return "Healthy Leaf", 93.5, "Healthy foliage without blight symptoms.", np.zeros((h, w), dtype=np.uint8), "potato"
+        if d_ratio > 0.06 or (b_ratio > 0.10 and edge_density > 0.04):
+            return "Potato Late Blight", 93.0, "Dark brown to black decaying lesions with water-soaked edges.", lesion_mask, "potato"
         if b_ratio > 0.05 or spot_count >= 3:
-            return "Potato Early Blight", 90.0, "Angular brown spots with concentric ring formation.", lesion_mask
-        return "Potato Early Blight", 86.0, "Foliar necrotic lesions identified.", lesion_mask
+            return "Potato Early Blight", 90.0, "Angular brown spots with concentric ring formation.", lesion_mask, "potato"
+        return "Healthy Leaf", 87.0, "Foliage intact with no active blight progression.", np.zeros((h, w), dtype=np.uint8), "potato"
 
     # --- Corn Branch ---
-    elif crop_key == "corn":
-        if o_ratio > 0.03 or (y_ratio > 0.08 and spot_count > 8):
-            return "Corn Common Rust", 92.5, "Cinnamon-brown powdery pustules scattered across leaf blade.", orange_mask if o_ratio > 0.02 else lesion_mask
-        if edge_density > 0.05 and (b_ratio > 0.06 or y_ratio > 0.08):
-            return "Corn Northern Leaf Blight", 91.0, "Elongated cigar-shaped tan lesions along leaf veins.", lesion_mask
-        if g_ratio > 0.45 and b_ratio < 0.04 and o_ratio < 0.01:
-            return "Healthy Leaf", 95.0, "Clean corn leaf blade free of rust or stripe lesions.", np.zeros((h, w), dtype=np.uint8)
-        return "Corn Common Rust", 87.0, "Pustule formation and leaf discoloration observed.", lesion_mask
+    elif target_crop == "corn":
+        if o_ratio > 0.02 or (y_ratio > 0.08 and spot_count > 6):
+            return "Corn Common Rust", 92.5, "Cinnamon-brown powdery pustules scattered across leaf blade.", orange_mask if o_ratio > 0.02 else lesion_mask, "corn"
+        if edge_density > 0.04 and (b_ratio > 0.05 or y_ratio > 0.07):
+            return "Corn Northern Leaf Blight", 91.0, "Elongated cigar-shaped tan lesions along leaf veins.", lesion_mask, "corn"
+        if g_ratio > 0.38 and b_ratio < 0.04 and o_ratio < 0.01:
+            return "Healthy Leaf", 95.0, "Clean corn leaf blade free of rust or stripe lesions.", np.zeros((h, w), dtype=np.uint8), "corn"
+        return "Corn Common Rust", 87.0, "Pustule formation and leaf discoloration observed.", lesion_mask, "corn"
 
     # --- Wheat Branch ---
-    elif crop_key == "wheat":
-        if w_ratio > 0.08 and (y_ratio > 0.05 or g_ratio > 0.3):
-            return "Wheat Powdery Mildew", 92.0, "White to gray powdery fungal growth on leaf surface.", white_mask
-        if y_ratio > 0.12 or o_ratio > 0.04:
+    elif target_crop == "wheat":
+        if w_ratio > 0.06 and (y_ratio > 0.04 or g_ratio > 0.25):
+            return "Wheat Powdery Mildew", 92.0, "White to gray powdery fungal growth on leaf surface.", white_mask, "wheat"
+        if y_ratio > 0.10 or o_ratio > 0.03:
             if y_ratio > o_ratio:
-                return "Wheat Yellow Stripe Rust", 93.5, "Linear yellow-orange stripes of pustules along veins.", yellow_mask
-            return "Wheat Leaf Rust (Brown Rust)", 91.0, "Scattered circular orange-brown rust pustules.", orange_mask
-        if b_ratio < 0.04 and y_ratio < 0.06 and w_ratio < 0.03 and g_ratio > 0.40:
-            return "Healthy Leaf", 94.0, "Healthy green wheat flag leaf without rust symptoms.", np.zeros((h, w), dtype=np.uint8)
-        return "Wheat Leaf Rust (Brown Rust)", 88.0, "Rust symptoms and foliar discoloration detected.", lesion_mask
+                return "Wheat Yellow Stripe Rust", 93.5, "Linear yellow-orange stripes of pustules along veins.", yellow_mask, "wheat"
+            return "Wheat Leaf Rust (Brown Rust)", 91.0, "Scattered circular orange-brown rust pustules.", orange_mask, "wheat"
+        if b_ratio < 0.04 and y_ratio < 0.06 and w_ratio < 0.03 and g_ratio > 0.35:
+            return "Healthy Leaf", 94.0, "Healthy green wheat flag leaf without rust symptoms.", np.zeros((h, w), dtype=np.uint8), "wheat"
+        return "Wheat Leaf Rust (Brown Rust)", 88.0, "Rust symptoms and foliar discoloration detected.", lesion_mask, "wheat"
 
-    # Fallback default
-    return "Healthy Leaf", 85.0, "General leaf inspection complete.", np.zeros((h, w), dtype=np.uint8)
+    # Default fallback
+    return "Healthy Leaf", 85.0, "General leaf inspection complete.", np.zeros((h, w), dtype=np.uint8), "tomato"
 
 
 # ── Main Prediction Function ──────────────────────────────────────────────────
@@ -321,26 +340,22 @@ def predict_disease(file_bytes: bytes, crop: str = "auto") -> dict:
             "heatmap_url": None,
         }
 
-    # 2. Determine target crop key
+    # 2. Diagnose using calibrated pathology
     clean_crop = crop.lower().strip() if crop else "auto"
-    if clean_crop not in ["tomato", "potato", "corn", "wheat"]:
-        clean_crop = "tomato"  # Default primary crop
+    disease_name, confidence, symptoms, lesion_mask, detected_crop = _diagnose_crop_disease(img, clean_crop)
 
-    # 3. Diagnose using calibrated pathology
-    disease_name, confidence, symptoms, lesion_mask = _diagnose_crop_disease(img, clean_crop)
-
-    # Retrieve rich agronomic guidance
-    crop_data = CROP_DISEASES.get(clean_crop, CROP_DISEASES["tomato"])
+    # 3. Retrieve rich agronomic guidance
+    crop_data = CROP_DISEASES.get(detected_crop, CROP_DISEASES["tomato"])
     disease_info = crop_data.get(disease_name, crop_data.get("Healthy Leaf"))
 
-    # Generate visual heatmap overlay
+    # 4. Generate visual heatmap overlay
     heatmap_b64 = _generate_lesion_heatmap(img, lesion_mask)
 
     return {
         "success": True,
         "is_plant_leaf": True,
         "source": "local_diagnostic_engine",
-        "crop_name": clean_crop.capitalize(),
+        "crop_name": detected_crop.capitalize(),
         "disease": disease_name,
         "disease_name": disease_name,
         "confidence": round(confidence, 1),

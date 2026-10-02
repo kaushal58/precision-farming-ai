@@ -6,15 +6,15 @@ import api from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
 
 const TARGET_CROPS = [
+  { id: 'auto', name: 'Auto-Detect (AI)', icon: '🔍' },
   { id: 'tomato', name: 'Tomato', icon: '🍅' },
   { id: 'potato', name: 'Potato', icon: '🥔' },
   { id: 'corn', name: 'Corn', icon: '🌽' },
   { id: 'wheat', name: 'Wheat', icon: '🌾' },
-  { id: 'auto', name: 'Auto-Detect', icon: '🔍' },
 ];
 
 export default function DiseasePage() {
-  const [selectedCrop, setSelectedCrop] = useState('tomato');
+  const [selectedCrop, setSelectedCrop] = useState('auto');
   const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
